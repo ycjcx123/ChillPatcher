@@ -236,6 +236,20 @@ namespace ChillPatcher.Patches
                 "[AutoFit] overlap={0:0.0}px shift {1:0.0} -> {2:0.0}px ({3})",
                 overlap, _shiftUnits * scale, newShift * scale, sizeChanged ? "分辨率变化" : "收敛"));
 
+            // 外部写入者可能在我们捕获基准之后整体挪动 TopIcons ——
+            // 例如番茄钟插件「隐藏默认番茄钟 UI」会 chill.ui.setPosition(TopIcons, +250)。
+            // 若发现实际位置与「基准 + 我们的偏移」不一致，把这段差异并入基准，
+            // 否则下一次修正会用陈旧基准把对方的位移抹掉。
+            Vector2 currentPos = _topRect.anchoredPosition;
+            Vector2 impliedPos = _basePos + new Vector2(0f, _shiftUnits);
+            if ((currentPos - impliedPos).sqrMagnitude > 0.0001f)
+            {
+                _basePos = currentPos - new Vector2(0f, _shiftUnits);
+                TopIconsAutoFit.Logger.LogInfo(string.Format(
+                    "[AutoFit] 检测到外部位置变更，重设基准: {0} -> {1}",
+                    impliedPos.y.ToString("0.0"), currentPos.y.ToString("0.0")));
+            }
+
             _shiftUnits = newShift;
             _topRect.anchoredPosition = _basePos + new Vector2(0f, _shiftUnits);
             LayoutRebuilder.ForceRebuildLayoutImmediate(_topRect);

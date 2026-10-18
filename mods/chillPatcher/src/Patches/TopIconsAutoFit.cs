@@ -92,6 +92,10 @@ namespace ChillPatcher.Patches
             return Mathf.Max(0.0001f, rt.lossyScale.y / local);
         }
 
+        /// <summary>
+        /// 合并所有激活子节点的世界矩形（GetWorldCorners）。
+        /// 容器自身 rect 恒为 100x100、不随子项撑开，因此只能从子项求包围盒。
+        /// </summary>
         private static bool TryGetChildrenBounds(RectTransform parent, out Rect bounds)
         {
             bounds = default(Rect);
@@ -146,12 +150,14 @@ namespace ChillPatcher.Patches
         private int _lastWidth;
         private int _lastHeight;
 
+        /// <summary>记录初始分辨率；本轮首帧不做避让。</summary>
         private void Start()
         {
             _lastWidth = Screen.width;
             _lastHeight = Screen.height;
         }
 
+        /// <summary>按轮询间隔驱动一次避让计算；异常只记日志，不影响游戏主循环。</summary>
         private void Update()
         {
             float now = Time.unscaledTime;
@@ -172,6 +178,10 @@ namespace ChillPatcher.Patches
             }
         }
 
+        /// <summary>
+        /// 解析引用、重建布局、测量两列并修正 TopIcons 的 Y 偏移，
+        /// 使「环境」与「隐藏UI」之间保持 Margin 像素间隙。
+        /// </summary>
         private void Evaluate()
         {
             if (_topIcons == null || !_topIcons.activeInHierarchy)
@@ -231,6 +241,12 @@ namespace ChillPatcher.Patches
             LayoutRebuilder.ForceRebuildLayoutImmediate(_topRect);
         }
 
+        /// <summary>
+        /// 重新解析 TopIcons / RightIcons 引用。
+        /// 只有解析到的 RectTransform 与上一次不是同一个对象（场景切换、UI 重建）时，
+        /// 才重置基准位置与偏移量；同一个对象仅是被停用再激活时，必须保留基准，
+        /// 否则会把"已偏移过的位置"当作新基准，导致每次激活都向上累积漂移。
+        /// </summary>
         private bool TryResolve()
         {
             // TopIcons 的父节点 MostFrontArea 在启动阶段通常未激活；未激活时直接放弃本轮，
@@ -241,22 +257,34 @@ namespace ChillPatcher.Patches
                 return false;
             }
 
-            _topIcons = GameObject.Find(TopIconsAutoFit.TopIconsPath);
-            _rightIcons = GameObject.Find(TopIconsAutoFit.RightIconsPath);
+            var topIcons = GameObject.Find(TopIconsAutoFit.TopIconsPath);
+            var rightIcons = GameObject.Find(TopIconsAutoFit.RightIconsPath);
 
-            if (_topIcons == null || _rightIcons == null)
+            if (topIcons == null || rightIcons == null)
             {
                 return false;
             }
 
-            _topRect = _topIcons.GetComponent<RectTransform>();
-            if (_topRect == null)
+            var topRect = topIcons.GetComponent<RectTransform>();
+            if (topRect == null)
             {
                 return false;
             }
 
-            // 新场景/新对象：重新取基准，并给布局组一点时间稳定
-            _hasBase = false;
+            bool isSameObject = ReferenceEquals(_topRect, topRect);
+
+            _topIcons = topIcons;
+            _rightIcons = rightIcons;
+            _topRect = topRect;
+
+            if (!isSameObject)
+            {
+                // 新场景/新对象：丢弃旧基准与偏移，重新测量
+                _hasBase = false;
+                _shiftUnits = 0f;
+            }
+
+            // 无论是新对象还是重新激活，都给布局组一点时间稳定
             _readyAt = Time.unscaledTime + 0.3f;
             return true;
         }
